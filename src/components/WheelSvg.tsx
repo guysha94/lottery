@@ -42,7 +42,7 @@ export function WheelSvg({ entries, rotationRad, onSpin }: WheelSvgProps) {
 
   if (slices.length === 0) {
     return (
-      <svg width={440} height={440} className="mx-auto block" aria-hidden="true">
+      <svg viewBox="0 0 440 440" className="size-full block" aria-hidden="true">
         <circle cx={CX} cy={CY} r={RADIUS} fill="#374151" stroke="#4b5563" strokeWidth={2} />
         <text x={CX} y={CY} textAnchor="middle" dominantBaseline="middle" fill="#9ca3af" fontSize={14}>
           No entries
@@ -53,10 +53,8 @@ export function WheelSvg({ entries, rotationRad, onSpin }: WheelSvgProps) {
 
   return (
     <svg
-      width={440}
-      height={440}
-      className={`mx-auto block ${clickable ? "cursor-pointer" : ""}`}
       viewBox="0 0 440 440"
+      className={`size-full block ${clickable ? "cursor-pointer" : ""}`}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={clickable ? onSpin : undefined}
