@@ -78,6 +78,7 @@ export function WheelSvg({ entries, rotationRad, onSpin }: WheelSvgProps) {
           const path = `M ${CX} ${CY} L ${start.x} ${start.y} A ${RADIUS} ${RADIUS} 0 ${large} 0 ${end.x} ${end.y} Z`;
           const color = SLICE_COLORS[i % SLICE_COLORS.length];
           const labelPos = polarToXY(slice.centerAngle, LABEL_R);
+          const rotationDeg = ((slice.centerAngle + Math.PI / 2) * 180) / Math.PI;
           return (
             <g key={slice.entry.id}>
               <path d={path} fill={color} stroke="#1f2937" strokeWidth={1} />
@@ -87,7 +88,8 @@ export function WheelSvg({ entries, rotationRad, onSpin }: WheelSvgProps) {
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="#fff"
-                fontSize={12}
+                fontSize={10}
+                transform={`rotate(${rotationDeg} ${labelPos.x} ${labelPos.y})`}
                 fontWeight="600"
                 style={{ pointerEvents: "none" }}
               >

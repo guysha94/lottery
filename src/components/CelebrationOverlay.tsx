@@ -67,7 +67,7 @@ export function CelebrationOverlay({
         <button
           type="button"
           onClick={onClose}
-          className="mt-6 rounded-lg bg-amber-500 px-6 py-2.5 font-semibold text-gray-900 hover:bg-amber-400"
+          className="mt-6 rounded-lg bg-amber-500 px-6 py-2.5 font-semibold text-gray-900 hover:bg-amber-400 cursor-pointer"
         >
           {primaryLabel}
         </button>

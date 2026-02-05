@@ -1,27 +1,31 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import * as repo from "../db/repo.ts";
-import { pickWeighted } from "../lib/weighted.ts";
-import { buildSlices, computeTargetRotation } from "../lib/wheelMath.ts";
-import { animateRotation } from "../lib/animateRotation.ts";
-import type { Entry, LotteryState, Place, Winner } from "../types/models.ts";
-import { ImportPanel } from "../components/ImportPanel.tsx";
-import { WheelSvg } from "../components/WheelSvg.tsx";
-import { CelebrationOverlay } from "../components/CelebrationOverlay.tsx";
-import { Podium } from "../components/Podium.tsx";
+import type {Entry, LotteryState, Place, Winner} from "../types/models.ts";
+import {ImportPanel} from "../components/ImportPanel.tsx";
+import {CelebrationOverlay} from "../components/CelebrationOverlay.tsx";
+import {Podium} from "../components/Podium.tsx";
+import {type PrizeWheelRef, type Sector} from '@mertercelik/react-prize-wheel';
+import '@mertercelik/react-prize-wheel/style.css';
+import {Wheel} from "../components/Wheel.tsx";
+
+const SEGMENT_COLORS = [
+  "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b",
+  "#10b981", "#06b6d4", "#6366f1", "#84cc16",
+];
 
 const SPIN_CONFIG: Record<
-  Place,
-  { durationMs: number; prizeLabel: string; extraTurns: number }
+    Place,
+    { durationMs: number; prizeLabel: string; extraTurns: number }
 > = {
-  third: { durationMs: 4000, prizeLabel: "BUY ME – 200₪", extraTurns: 6 },
-  second: { durationMs: 6000, prizeLabel: "BUY ME – 300₪", extraTurns: 8 },
-  first: { durationMs: 8000, prizeLabel: "BUY ME – 500₪", extraTurns: 10 },
+    third: {durationMs: 6000, prizeLabel: "BUY ME – 200₪", extraTurns: 6},
+    second: {durationMs: 8000, prizeLabel: "BUY ME – 300₪", extraTurns: 8},
+    first: {durationMs: 10000, prizeLabel: "BUY ME – 500₪", extraTurns: 10},
 };
 
 const NEXT_STEP: Record<Place, LotteryState["step"]> = {
-  third: "third_done",
-  second: "second_done",
-  first: "first_done",
+    third: "third_done",
+    second: "second_done",
+    first: "first_done",
 };
 
 function getRemainingEntries(entries: Entry[], winners: Winner[]): Entry[] {
@@ -29,17 +33,33 @@ function getRemainingEntries(entries: Entry[], winners: Winner[]): Entry[] {
   return entries.filter((e) => !winnerIds.has(e.id));
 }
 
+function getPlaceFromStep(step: LotteryState["step"]): Place | null {
+    if (step === "ready") return "third";
+    if (step === "third_done") return "second";
+    if (step === "second_done") return "first";
+    return null;
+}
+
 export function MainPage() {
+  const wheelRef = useRef<PrizeWheelRef>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [lotteryState, setLotteryState] = useState<LotteryState | null>(null);
-  const [rotationRad, setRotationRad] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [overlay, setOverlay] = useState<{
     place: Place;
     winner: Winner;
   } | null>(null);
   const [showPodiumView, setShowPodiumView] = useState(false);
-  const cancelAnimationRef = useRef<(() => void) | null>(null);
+  /** Place we're spinning for; set when spin starts, read in onSpinEnd. */
+  const spinningForPlaceRef = useRef<Place | null>(null);
+  const spinSoundRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      spinSoundRef.current?.pause();
+      spinSoundRef.current = null;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const [e, s] = await Promise.all([
@@ -63,56 +83,76 @@ export function MainPage() {
   const winners = lotteryState?.winners ?? [];
   const remaining = getRemainingEntries(entries, winners);
   const disabled = isSpinning || overlay !== null;
+  const place = getPlaceFromStep(step);
 
-  const doSpin = useCallback(
-    async (place: Place) => {
-      if (remaining.length === 0) return;
-      const winner = pickWeighted(remaining);
-      if (!winner) return;
-      const slices = buildSlices(remaining);
-      const slice = slices.find((s) => s.entry.id === winner.id);
-      if (!slice) return;
-
-      const config = SPIN_CONFIG[place];
-      const targetRotation = computeTargetRotation(
-        rotationRad,
-        slice.centerAngle,
-        config.extraTurns,
-        config.durationMs
-      );
-
-      setIsSpinning(true);
-      const winnerRecord: Winner = {
-        place,
-        entryId: winner.id,
-        name: winner.name,
-        prizeLabel: config.prizeLabel,
-        wonAt: Date.now(),
-      };
-
-      cancelAnimationRef.current = animateRotation(
-        rotationRad,
-        targetRotation,
-        config.durationMs,
-        setRotationRad,
-        () => {
-          setIsSpinning(false);
-          setLotteryState((prev) => {
-            if (!prev) return prev;
-            const next: LotteryState = {
-              step: NEXT_STEP[place],
-              winners: [...prev.winners, winnerRecord],
-              lastImportAt: prev.lastImportAt,
-            };
-            repo.setLotteryState(next).catch(() => {});
-            return next;
-          });
-          setOverlay({ place, winner: winnerRecord });
-        }
-      );
-    },
-    [remaining, rotationRad]
+  /** Sectors for the wheel: remaining entries with id, label, probability (tickets). Library picks by probability on spin(). */
+  const wheelSectors = useMemo<Sector[]>(
+    () =>
+      remaining.map((e) => ({
+        id: e.id,
+        label: e.name,
+        text: e.name,
+        probability: Math.max(1, e.tickets),
+      })),
+    [remaining]
   );
+
+  const doSpin = useCallback(() => {
+    if (remaining.length === 0 || !place || !wheelRef.current?.spin()) return;
+    spinningForPlaceRef.current = place;
+    // Create and play spin sound in same user gesture so browsers allow audio
+    if (!spinSoundRef.current) spinSoundRef.current = new Audio("/spin-sound.mp3");
+    const audio = spinSoundRef.current;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+    wheelRef.current.spin();
+  }, [remaining.length, place]);
+
+  const onSpinStart = useCallback(() => {
+    setIsSpinning(true);
+    if (!spinSoundRef.current) spinSoundRef.current = new Audio("/spin-sound.mp3");
+    spinningForPlaceRef.current = place;
+    const audio = spinSoundRef.current;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }, [place]);
+
+  const onSpinEnd = useCallback((sector: Sector) => {
+
+
+    const placeForSpin = spinningForPlaceRef.current;
+    spinningForPlaceRef.current = null;
+    setIsSpinning(false);
+
+    // Stop spin sound
+    spinSoundRef.current?.pause();
+    if (spinSoundRef.current) spinSoundRef.current.currentTime = 0;
+
+    if (!placeForSpin) return;
+
+    const config = SPIN_CONFIG[placeForSpin];
+    const winnerRecord: Winner = {
+      place: placeForSpin,
+      entryId: String(sector.id),
+      name: sector.label,
+      prizeLabel: config.prizeLabel,
+      wonAt: Date.now(),
+    };
+    // Set winner and advance step (winner is excluded from next spins via getRemainingEntries)
+    setLotteryState((prev) => {
+      if (!prev) return prev;
+      const next: LotteryState = {
+        step: NEXT_STEP[placeForSpin],
+        winners: [...prev.winners, winnerRecord],
+        lastImportAt: prev.lastImportAt,
+      };
+      repo.setLotteryState(next).catch(() => {});
+      return next;
+    });
+
+    // Open celebration overlay
+    setOverlay({ place: placeForSpin, winner: winnerRecord });
+  }, []);
 
   const closeOverlay = useCallback(() => {
     setOverlay((current) => {
@@ -125,7 +165,6 @@ export function MainPage() {
     await repo.resetLotteryKeepEntries();
     const s = await repo.getLotteryState();
     setLotteryState(s);
-    setRotationRad(0);
     setOverlay(null);
     setShowPodiumView(false);
   }, []);
@@ -142,7 +181,6 @@ export function MainPage() {
       winners: [],
       lastImportAt: Date.now(),
     });
-    setRotationRad(0);
     setOverlay(null);
     setShowPodiumView(false);
   }, []);
@@ -151,42 +189,31 @@ export function MainPage() {
     await repo.clearAll();
     setEntries([]);
     setLotteryState(null);
-    setRotationRad(0);
     setOverlay(null);
     setShowPodiumView(false);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      cancelAnimationRef.current?.();
-    };
   }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Enter") return;
       const target = document.activeElement;
-      const isInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+      const isInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement;
       if (isInput) return;
       if (disabled) return;
       e.preventDefault();
-      if (step === "ready") doSpin("third");
-      else if (step === "third_done") doSpin("second");
-      else if (step === "second_done") doSpin("first");
+      doSpin();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [disabled, step, doSpin]);
-  const handleWheelClick = useCallback(() => {
-    if (disabled) return;
-    if (step === "ready") doSpin("third");
-    else if (step === "third_done") doSpin("second");
-    else if (step === "second_done") doSpin("first");
-  }, [disabled, step, doSpin]);
+  }, [disabled, doSpin]);
 
+  
   if (step === "first_done" && showPodiumView) {
     return (
-      <div className="min-h-screen px-4 py-8">
+      <div className="min-h-screen flex items-center justify-center px-4 py-8">
         <Podium
           winners={lotteryState?.winners ?? []}
           onRestart={handleRestart}
@@ -197,16 +224,45 @@ export function MainPage() {
     );
   }
 
+  const spinDuration = place ? SPIN_CONFIG[place].durationMs / 1000 : 4;
+  const spinTurns = place ? SPIN_CONFIG[place].extraTurns : 6;
+
   return (
     <div className="min-h-screen flex flex-col pt-[14vh]">
       <div className="flex-1 min-h-0 flex items-center justify-center p-2">
         <div className="h-full w-full flex items-center justify-center min-w-0">
-          <div className="w-[min(88vmin,100%)] max-h-full aspect-square">
-            <WheelSvg
-            entries={remaining}
-            rotationRad={rotationRad}
-            onSpin={disabled ? undefined : handleWheelClick}
-          />
+          <div
+            className={`w-[min(88vmin,100%)] max-h-full aspect-square flex items-center justify-center ${!disabled && place ? "cursor-pointer" : ""}`}
+            onClick={() => {
+              if (disabled || !place) return;
+              doSpin();
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                if (!disabled && place) doSpin();
+              }
+            }}
+            aria-label="Spin the wheel"
+          >
+            {wheelSectors.length < 2 ? (
+              <div className="flex size-full items-center justify-center rounded-full bg-gray-700 text-gray-400 text-center px-4">
+                {wheelSectors.length === 0 ? "No entries" : "Add at least 2 entries to spin"}
+              </div>
+            ) : (
+              <Wheel
+                ref={wheelRef}
+                sectors={wheelSectors}
+                wheelColors={SEGMENT_COLORS as [string, string]}
+                onSpinStart={onSpinStart}
+                onSpinEnd={onSpinEnd}
+                duration={spinDuration}
+                minSpins={spinTurns}
+                maxSpins={spinTurns}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -220,6 +276,7 @@ export function MainPage() {
       </div>
       {overlay && (
         <CelebrationOverlay
+          key={`${overlay.place}-${overlay.winner.entryId}-${overlay.winner.wonAt}`}
           place={overlay.place}
           winner={overlay.winner}
           primaryLabel={overlay.place === "first" ? "Show Podium" : "Continue"}

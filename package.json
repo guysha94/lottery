@@ -10,11 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mertercelik/react-prize-wheel": "^1.0.2",
     "canvas-confetti": "^1.9.4",
     "dexie": "^4.3.0",
     "papaparse": "^5.5.3",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-wheel-of-prizes": "^1.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
