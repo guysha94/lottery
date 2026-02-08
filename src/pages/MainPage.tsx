@@ -14,12 +14,12 @@ const SEGMENT_COLORS = [
 ];
 
 const SPIN_CONFIG: Record<
-    Place,
-    { durationMs: number; prizeLabel: string; extraTurns: number }
+  Place,
+  { durationMs: number; prizeLabel: string; extraTurns: number }
 > = {
-    third: {durationMs: 6000, prizeLabel: "BUY ME – 200₪", extraTurns: 6},
-    second: {durationMs: 8000, prizeLabel: "BUY ME – 300₪", extraTurns: 8},
-    first: {durationMs: 10000, prizeLabel: "BUY ME – 500₪", extraTurns: 10},
+  third: { durationMs: 10000, prizeLabel: "BUY ME – 200₪", extraTurns: 6 },
+  second: { durationMs: 13000, prizeLabel: "BUY ME – 300₪", extraTurns: 8 },
+  first: { durationMs: 15000, prizeLabel: "BUY ME – 500₪", extraTurns: 10 },
 };
 
 const NEXT_STEP: Record<Place, LotteryState["step"]> = {
