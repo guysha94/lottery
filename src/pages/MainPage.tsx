@@ -13,13 +13,44 @@ const SEGMENT_COLORS = [
   "#10b981", "#06b6d4", "#6366f1", "#84cc16",
 ];
 
+const SPIN_DURATION_STORAGE_KEY = "lottery-spin-duration";
+
+const DEFAULT_SPIN_DURATIONS_SEC: Record<Place, number> = {
+  third: 10,
+  second: 13,
+  first: 15,
+};
+
+function loadSpinDurations(): Record<Place, number> {
+  try {
+    const raw = localStorage.getItem(SPIN_DURATION_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SPIN_DURATIONS_SEC };
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return {
+      third: clampDuration(parsed.third ?? DEFAULT_SPIN_DURATIONS_SEC.third),
+      second: clampDuration(parsed.second ?? DEFAULT_SPIN_DURATIONS_SEC.second),
+      first: clampDuration(parsed.first ?? DEFAULT_SPIN_DURATIONS_SEC.first),
+    };
+  } catch {
+    return { ...DEFAULT_SPIN_DURATIONS_SEC };
+  }
+}
+
+function clampDuration(s: number): number {
+  return Math.max(1, Math.min(60, Math.round(Number(s)) || 1));
+}
+
+function saveSpinDurations(durations: Record<Place, number>): void {
+  localStorage.setItem(SPIN_DURATION_STORAGE_KEY, JSON.stringify(durations));
+}
+
 const SPIN_CONFIG: Record<
   Place,
-  { durationMs: number; prizeLabel: string; extraTurns: number }
+  { prizeLabel: string; extraTurns: number }
 > = {
-  third: { durationMs: 10000, prizeLabel: "BUY ME – 200₪", extraTurns: 6 },
-  second: { durationMs: 13000, prizeLabel: "BUY ME – 300₪", extraTurns: 8 },
-  first: { durationMs: 15000, prizeLabel: "BUY ME – 500₪", extraTurns: 10 },
+  third: { prizeLabel: "BUY ME – 200₪", extraTurns: 6 },
+  second: { prizeLabel: "BUY ME – 300₪", extraTurns: 8 },
+  first: { prizeLabel: "BUY ME – 500₪", extraTurns: 10 },
 };
 
 const NEXT_STEP: Record<Place, LotteryState["step"]> = {
@@ -50,6 +81,9 @@ export function MainPage() {
     winner: Winner;
   } | null>(null);
   const [showPodiumView, setShowPodiumView] = useState(false);
+  const [spinDurationsSec, setSpinDurationsSec] = useState<Record<Place, number>>(
+    () => loadSpinDurations()
+  );
   /** Place we're spinning for; set when spin starts, read in onSpinEnd. */
   const spinningForPlaceRef = useRef<Place | null>(null);
   const spinSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -193,6 +227,16 @@ export function MainPage() {
     setShowPodiumView(false);
   }, []);
 
+  const handleSaveSpinDurations = useCallback((durations: Record<Place, number>) => {
+    const clamped = {
+      third: clampDuration(durations.third),
+      second: clampDuration(durations.second),
+      first: clampDuration(durations.first),
+    };
+    saveSpinDurations(clamped);
+    setSpinDurationsSec(clamped);
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Enter") return;
@@ -224,7 +268,7 @@ export function MainPage() {
     );
   }
 
-  const spinDuration = place ? SPIN_CONFIG[place].durationMs / 1000 : 4;
+  const spinDuration = place ? spinDurationsSec[place] : 4;
   const spinTurns = place ? SPIN_CONFIG[place].extraTurns : 6;
 
   return (
@@ -272,6 +316,8 @@ export function MainPage() {
           onReplace={handleReplace}
           onClear={handleClear}
           disabled={disabled}
+          spinDurationsSec={spinDurationsSec}
+          onSaveSpinDurations={handleSaveSpinDurations}
         />
       </div>
       {overlay && (
